@@ -10,39 +10,30 @@ import (
 
 // Settings strcut
 type Settings struct {
-	List      ListParameters  `json:"list"`
-	Video     VideoParameters `json:"video"`
-	Locations []Locations     `json:"locations"`
-	Auth      []string        `json:"auth"`
+	List  ListParameters  `json:"list"`
+	Video VideoParameters `json:"video"`
+	Auth  []string        `json:"auth"`
 }
 
 // ListParameters - Define the parameters to return the list
 type ListParameters struct {
-	Part            string `json:"part"`
-	RegionCode      string `json:"regionCode"`
-	VideoType       string `json:"videoType"`
-	EventType       string `json:"eventType"`
-	MaxResults      int64  `json:"maxResults"`
-	NextToken       string `json:"nextToken"`
-	Language        string `json:"language"`
-	Order           string `json:"order"`
-	PublishedAfter  string `json:"publishedAfter"`
-	PublishedBefore string `json:"publishedbefore"`
-	Query           string `json:"query"`
-	Location        string `json:"location"`
-	LocationRadius  string `json:"locationRadius"`
+	Part           string `json:"part"`
+	RegionCode     string `json:"regionCode"`
+	VideoType      string `json:"videoType"`
+	EventType      string `json:"eventType"`
+	MaxResults     int64  `json:"maxResults"`
+	NextToken      string `json:"nextToken"`
+	Language       string `json:"language"`
+	Order          string `json:"order"`
+	PublishedAfter string `json:"publishedAfter"`
+	Query          string `json:"query"`
+	Location       string `json:"location"`
+	LocationRadius string `json:"locationRadius"`
 }
 
 // VideoParameters - Define the parameters to return vide
 type VideoParameters struct {
 	Part string `json:"part"`
-}
-
-// Locations struct
-type Locations struct {
-	Name        string `json:"name"`
-	Coordenates string `json:"coordenates"`
-	Radius      string `json:"radius"`
 }
 
 var dataSettings Settings
@@ -82,7 +73,7 @@ func loadData() {
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"error": err.Error(),
-		}).Error("Error to open unmarshall data")
+		}).Error("Error to unmarshall data")
 	}
 }
 
@@ -99,14 +90,6 @@ func GetParametersVideo() VideoParameters {
 
 	loadData()
 	return dataSettings.Video
-}
-
-// GetLocations method
-func GetLocations() []Locations {
-
-	loadData()
-	return dataSettings.Locations
-
 }
 
 // GetAuthKeys method

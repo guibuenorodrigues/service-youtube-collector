@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"soliveboa/youtuber/v2/dao"
 	"soliveboa/youtuber/v2/entities"
 	"soliveboa/youtuber/v2/rabbit"
@@ -27,15 +28,19 @@ type Youtube struct {
 }
 
 // NewYotubeService - creates a new instance
-func NewYotubeService(k string) Youtube {
-	// set the keys
-	apiKey = k
-
+func NewYotubeService() Youtube {
 	return Youtube{}
 }
 
+var totalAlreadyProcessed = 0
+var categoryID = ""
+
 // RunService - retrieve the videos from search list
-func (y Youtube) RunService(location string, radius string, opt ...string) error {
+func (y Youtube) RunService(k string, videoCategory string) error {
+
+	// set the keys
+	apiKey = k
+	categoryID = videoCategory
 
 	flag.Parse()
 
@@ -59,14 +64,8 @@ func (y Youtube) RunService(location string, radius string, opt ...string) error
 	call.RelevanceLanguage(pl.Language)
 	call.PublishedAfter(pl.PublishedAfter)
 	call.Order(pl.Order)
-	call.Fields("nextPageToken,items(id(videoId))")
-	call.Location(location)
-	call.LocationRadius(radius)
-
-	// if there is published before
-	if len(opt) > 0 {
-		call.PageToken(opt[0])
-	}
+	call.VideoCategoryId(videoCategory)
+	call.Fields("prevPageToken,nextPageToken,items(id(videoId))")
 
 	// run paged result
 	err = call.Pages(ctx, addPaginedResults)
@@ -74,6 +73,20 @@ func (y Youtube) RunService(location string, radius string, opt ...string) error
 	if err != nil {
 		return err
 	}
+
+	// before move on , we delete the remaining data on the search control collection. It means that all the page were looked up properly
+
+	var d = dao.SearchResultControl{}
+	d.Connect("mongodb://127.0.0.1:27017", "soliveboa")
+	err = d.RemoveAll()
+
+	if err != nil {
+		logrus.Warning("Error to clean collection search control")
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"Category": categoryID,
+	}).Info("Finished pages from search list")
 
 	return nil
 
@@ -86,6 +99,16 @@ type ListOfIdsFromSearch struct {
 
 func addPaginedResults(values *youtube.SearchListResponse) error {
 
+	totalAlreadyProcessed++
+
+	logrus.WithFields(logrus.Fields{
+		"Category": categoryID,
+	}).Info("Processing pages from search list")
+
+	var dd = dao.SearchResultControl{}
+	dd.Connect("mongodb://127.0.0.1:27017", "soliveboa")
+	_ = dd.RemoveAll()
+
 	if len(values.Items) < 0 {
 		logrus.Warn("The message receive from API doesnt't have any item")
 		return nil
@@ -96,11 +119,20 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 
 	// looping through the items
 	for key := range values.Items {
+
+		if values.Items[key].Id.VideoId == "" {
+			logrus.Warning("ATTENTION: the video ID is null")
+		}
+
 		id = append(id, values.Items[key].Id.VideoId)
 	}
 
 	// define the list
 	listID := &ListOfIdsFromSearch{IDs: id}
+
+	fmt.Printf("%+v\n", listID)
+	fmt.Println("")
+	fmt.Println(values.NextPageToken)
 
 	// send the message to rabbit
 	err := sendResponse(listID)
@@ -113,28 +145,16 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 
 	}
 
-	// as datas vem por ordem da mais recente para a mais antiga
-	// 2020-05-20
-	// 2020-05-19
-	// 2020-05-18
-	// 2020-05-17
-	// 2020-05-16
+	var next = values.NextPageToken
+	var prev = values.PrevPageToken
 
-	// salvar a ultima data no banco de dados
-	last := values.NextPageToken
+	// justString := strings.Join(id, ",")
 
 	var d = dao.SearchResultControl{}
-	data := dao.SearchResultControlModel{NextPageToken: last, InsertedAt: time.Now()}
+	data := dao.SearchResultControlModel{NextPageToken: next, PrevPageToken: prev, InsertedAt: time.Now()}
 
 	d.Connect("mongodb://127.0.0.1:27017", "soliveboa")
-	insertedID, _ := d.Create(data)
-
-	logrus.WithFields(logrus.Fields{
-		"insertedID":    insertedID,
-		"nextPageToken": last,
-	}).Info("youtube last next token has been inserted")
-
-	time.Sleep(1 * time.Hour)
+	_, _ = d.Create(data)
 
 	return nil
 }
@@ -190,7 +210,9 @@ func sendResponse(a *ListOfIdsFromSearch) error {
 }
 
 // SearchVideoByID - list video details by ID
-func (y Youtube) SearchVideoByID(videoID string) error {
+func (y Youtube) SearchVideoByID(videoID string, k string) error {
+
+	apiKey = k
 
 	flag.Parse()
 
@@ -201,8 +223,9 @@ func (y Youtube) SearchVideoByID(videoID string) error {
 	if err != nil {
 		// define the which kind of error
 		logrus.WithFields(logrus.Fields{
-			"ids": videoID,
-			"err": err.Error(),
+			"ids":    videoID,
+			"action": "video",
+			"err":    err.Error(),
 		}).Error("Erro to connect to youtube service - video")
 
 		return err
@@ -212,12 +235,12 @@ func (y Youtube) SearchVideoByID(videoID string) error {
 
 	call := youtubeService.Videos.List(p.Part)
 	call.Id(videoID)
+	call.MaxResults(50)
 	call.Fields("items(id,snippet(publishedAt,channelId,title,description,thumbnails,channelTitle,categoryId,liveBroadcastContent),statistics,player,liveStreamingDetails)")
 
 	response, err := call.Do()
 
 	if err != nil {
-		// define the which kind of error
 		return err
 	}
 
@@ -238,8 +261,6 @@ func (y Youtube) SearchVideoByID(videoID string) error {
 		}
 	}
 
-	time.Sleep(1 * time.Hour)
-
 	//return *response, nil
 	return nil
 
@@ -252,7 +273,8 @@ func (y Youtube) ProcessVideo(r *MessageResponseVideo) error {
 
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"error": err,
+			"error":  err,
+			"action": "video",
 		}).Error("Error to serialize video items")
 
 		return err
@@ -263,7 +285,8 @@ func (y Youtube) ProcessVideo(r *MessageResponseVideo) error {
 
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"error": err,
+			"error":  err,
+			"action": "video",
 		}).Error("Error to connect to the broker")
 
 		return err
@@ -274,6 +297,7 @@ func (y Youtube) ProcessVideo(r *MessageResponseVideo) error {
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"error":    err,
+			"action":   "video",
 			"exchange": "to.processor.post",
 		}).Error("Error to declare exchange")
 
@@ -284,14 +308,16 @@ func (y Youtube) ProcessVideo(r *MessageResponseVideo) error {
 
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
-			"error": err,
+			"error":  err,
+			"action": "video",
 		}).Error("Error to publish the message")
 
 		return err
 	}
 
 	logrus.WithFields(logrus.Fields{
-		"id": r.Videos.Items[0].Id,
+		"id":     r.Videos.Items[0].Id,
+		"action": "video",
 	}).Info("Page has been sent to queue")
 
 	return nil

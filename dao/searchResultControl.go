@@ -24,6 +24,7 @@ var (
 type SearchResultControlModel struct {
 	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	NextPageToken string             `bson:"nextPageToken" json:"nextPageToken"`
+	PrevPageToken string             `bson:"prevPageToken" json:"prevPageToken"`
 	InsertedAt    time.Time          `bson:"insertedAt" json:"insertedAt"`
 }
 
@@ -52,9 +53,12 @@ func (s *SearchResultControl) Connect(dbURI string, d string) {
 	cred.Username = username
 	cred.Password = password
 
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	defer cancel()
 
 	clientOption := options.Client().ApplyURI(uri).SetAuth(cred)
+
 	client, err := mongo.Connect(ctx, clientOption)
 
 	if err != nil {
@@ -69,6 +73,7 @@ func (s *SearchResultControl) Connect(dbURI string, d string) {
 
 	// define db
 	db = client.Database(dbName)
+
 }
 
 // youtube_search_result_control
@@ -91,6 +96,25 @@ func (s *SearchResultControl) Create(d SearchResultControlModel) (interface{}, e
 
 	return i, nil
 
+}
+
+// RemoveAll methods
+func (s *SearchResultControl) RemoveAll() error {
+	collection := db.Collection(COLLECTION)
+
+	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+
+	err := collection.Drop(ctx)
+
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"err":        err.Error(),
+			"collection": COLLECTION,
+		}).Error("Error removing all from collection")
+		return nil
+	}
+
+	return nil
 }
 
 // GetNextPageToken method

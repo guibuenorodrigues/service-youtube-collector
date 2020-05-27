@@ -1,0 +1,44 @@
+{
+    "list": {
+        "part": "id",
+        "eventType": "upcoming",
+        "videoType": "video",
+        "regionCode": "BR",
+        "language": "pt_br",
+        "order": "date",
+        "publishedAfter": "2020-01-01T00:01:01.000Z",
+        "location": "-23.5489,-46.6388",
+        "locationRadius": "1000km",
+        "maxResults": 50
+    },
+    "video": {
+        "part": "id,liveStreamingDetails,snippet,player,recordingDetails,statistics"
+    },
+    "locations": [
+        {
+            "name": "nordeste",
+            "coordenates": "-8.110560,-42.948900",
+            "radius": "1000km"
+        },
+        {
+            "name": "sul-sudeste",
+            "coordenates": "-23.081080,-50.752640",
+            "radius": "1000km"
+        },
+        {
+            "name": "norte",
+            "coordenates": "-5.813030,-61.299700",
+            "radius": "1000km"
+        },
+        {
+            "name": "centro-leste",
+            "coordenates": "-15.452550,-47.615730",
+            "radius": "1000km"
+        }
+    ],
+    "auth": [
+        "AIzaSyDuHifom-_BKMQOMVWcbDRZkC_I3H3CgWc",
+        "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4",
+        "AIzaSyBwO4r28U2t5W2yhTmKhdjZKtfBXBOapw4"
+    ]
+}

@@ -8,10 +8,8 @@ import (
 	"os"
 	"soliveboa/youtuber/v2/dao"
 	"soliveboa/youtuber/v2/entities"
-	"soliveboa/youtuber/v2/rabbit"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
@@ -31,19 +29,13 @@ func main() {
 
 	logrus.Info("Service has been started")
 
-	wg.Add(1)
-	go startSearcher()
-	//go teste()
-	wg.Add(1)
-	go consumeVideo()
+	startSearcher()
 
-	wg.Wait()
+	consumeVideo()
 
 }
 
 func consumeVideo() {
-
-	defer wg.Done()
 
 	conn, err := amqp.Dial(amqURL)
 	failOnError(err, "Failed to connect to RabbitMQ")
@@ -87,6 +79,8 @@ func consumeVideo() {
 
 			if err == nil {
 				d.Ack(false)
+			} else {
+				d.Reject(true)
 			}
 		}
 	}()
@@ -97,6 +91,8 @@ func consumeVideo() {
 
 func receivedVideoData(d amqp.Delivery) error {
 	// d ListOfIdsFromSearch
+
+	logrus.Info("Video received from queue")
 
 	message := ListOfIdsFromSearch{}
 
@@ -111,6 +107,79 @@ func receivedVideoData(d amqp.Delivery) error {
 	}
 
 	// obtem as keys de acesso da base somente na primeira execução, nas demais utiliza a variavel armazenada
+	// authKeys = entities.GetAuthKeys()
+
+	// if len(authKeys) <= 0 {
+	// 	logrus.WithFields(logrus.Fields{
+	// 		"autheKeysCount": "0",
+	// 		"action":         "video",
+	// 	}).Error("There are no more auth keys available")
+
+	// 	return errors.New("There are no more auth keys available")
+	// }
+
+	// convert into string
+	justString := strings.Join(message.IDs, ",")
+
+	// call the service
+	// ys := NewYotubeService(authKeys[0])
+	ys := NewYotubeService()
+
+	err = ys.SearchVideoByID(justString, "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4")
+
+	if err != nil {
+		_, err := verifyError403(err)
+
+		return err
+	}
+
+	return nil
+
+}
+
+// // TODO REMOVER DEPOIS
+// func teste() {
+
+// 	for {
+
+// 		service := rabbit.New()
+// 		conn, err := service.Connect()
+
+// 		if err != nil {
+// 			logrus.WithFields(logrus.Fields{
+// 				"error": err,
+// 			}).Error("Error to connect to the broker")
+// 		}
+
+// 		exchange, err := conn.Exchange("to.youtuber.videos")
+
+// 		if err != nil {
+// 			logrus.WithFields(logrus.Fields{
+// 				"error":    err,
+// 				"exchange": "to.youtuber.videos",
+// 			}).Error("Error to declare exchange")
+// 		}
+
+// 		_, err = exchange.Publish([]byte("{\"ids\": [\"BiGh9VXC53M\",\"_jBNp7Vrc5s\",\"P20K3YmfmnQ\"]}"))
+
+// 		if err != nil {
+// 			logrus.WithFields(logrus.Fields{
+// 				"error": err,
+// 			}).Error("Error to publish the message")
+// 		}
+
+// 		logrus.Info("Page has been sent to queue")
+
+// 		time.Sleep(500 * time.Millisecond)
+// 	}
+
+// }
+
+func startSearcher() {
+
+	logrus.Info("() Starter ...")
+
+	// obtem as keys de acesso da base somente na primeira execução, nas demais utiliza a variavel armazenada
 	authKeys = entities.GetAuthKeys()
 
 	if len(authKeys) <= 0 {
@@ -118,113 +187,34 @@ func receivedVideoData(d amqp.Delivery) error {
 			"autheKeysCount": "0",
 		}).Error("There are no more auth keys available")
 
-		return errors.New("There are no more auth keys available")
+		panic(1)
 	}
 
-	// convert into string
-	justString := strings.Join(message.IDs, ",")
+	is403 := false
+	categoryList := []string{"10", "24"}
+	stoppedKey := 0
 
-	// call the service
-	ys := NewYotubeService(authKeys[0])
-	err = ys.SearchVideoByID(justString)
+	for key, val := range categoryList {
 
-	return err
-
-}
-
-// TODO REMOVER DEPOIS
-func teste() {
-
-	for {
-
-		service := rabbit.New()
-		conn, err := service.Connect()
+		ys := NewYotubeService()
+		err := ys.RunService(authKeys[0], val)
 
 		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"error": err,
-			}).Error("Error to connect to the broker")
-		}
-
-		exchange, err := conn.Exchange("to.youtuber.videos")
-
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"error":    err,
-				"exchange": "to.youtuber.videos",
-			}).Error("Error to declare exchange")
-		}
-
-		_, err = exchange.Publish([]byte("{\"ids\": [\"BiGh9VXC53M\",\"_jBNp7Vrc5s\",\"P20K3YmfmnQ\"]}"))
-
-		if err != nil {
-			logrus.WithFields(logrus.Fields{
-				"error": err,
-			}).Error("Error to publish the message")
-		}
-
-		logrus.Info("Page has been sent to queue")
-
-		time.Sleep(500 * time.Millisecond)
-	}
-
-}
-
-func startSearcher() {
-
-	defer wg.Done()
-
-	logrus.Info("() Starter ...")
-
-	// obtem as keys de acesso da base somente na primeira execução, nas demais utiliza a variavel armazenada
-	authKeys = entities.GetAuthKeys()
-
-	// looping for regions
-	loc := entities.GetLocations()
-
-	// looping for every location
-	for locKey := range loc {
-
-		logrus.Info("[*] Region: " + loc[locKey].Name)
-
-		// time.Sleep(1 * time.Hour)
-
-		if len(authKeys) <= 0 {
-			logrus.WithFields(logrus.Fields{
-				"autheKeysCount": "0",
-			}).Error("There are no more auth keys available")
-
-			panic(1)
-		}
-
-		// call the service
-		ys := NewYotubeService(authKeys[0])
-
-		// call the method to list
-		err := ys.RunService(loc[locKey].Coordenates, loc[locKey].Radius)
-
-		// validate error
-		if err != nil {
-			// check if is 403
 			t, _ := verifyError403(err)
+			is403 = t
+			stoppedKey = key
 
-			// yes, it's
-			if t {
-				_ = retryList(loc[locKey].Coordenates, loc[locKey].Radius)
-
-			} else {
-				logrus.WithFields(logrus.Fields{
-					"error": err,
-				}).Warning("Error looping locations")
-			}
-
+			break
 		}
+	}
 
+	if is403 {
+		retryList(categoryList, stoppedKey)
 	}
 
 }
 
-func retryList(location string, radius string) error {
+func retryList(category []string, key int) error {
 
 	// validate amount of keys
 	if len(authKeys) <= 0 {
@@ -239,7 +229,7 @@ func retryList(location string, radius string) error {
 	var s dao.SearchResultControl
 	s.Connect("mongodb://127.0.0.1:27017", "soliveboa")
 
-	last, err := s.GetNextPageToken()
+	_, err := s.GetNextPageToken()
 
 	if err != nil {
 
@@ -250,10 +240,31 @@ func retryList(location string, radius string) error {
 	//remove key
 	authKeys = authKeys[:len(authKeys)-1]
 
-	ys := NewYotubeService(authKeys[0])
+	ys := NewYotubeService()
+
+	is403 := false
+	stoppedKey := 0
+
+	for k, v := range category {
+
+		if k >= key {
+			err = ys.RunService(authKeys[0], v)
+
+			if err != nil {
+				t, _ := verifyError403(err)
+				is403 = t
+				stoppedKey = key
+
+				break
+			}
+		}
+	}
+
+	if is403 {
+		retryList(category, stoppedKey)
+	}
 
 	// call the method to list
-	err = ys.RunService(location, radius, last)
 
 	return err
 
