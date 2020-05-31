@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"soliveboa/youtuber/v2/dao"
@@ -34,9 +35,12 @@ func NewYotubeService() Youtube {
 
 var totalAlreadyProcessed = 0
 var categoryID = ""
+var totalNull = 0
 
 // RunService - retrieve the videos from search list
 func (y Youtube) RunService(k string, videoCategory string) error {
+
+	totalNull = 0
 
 	// set the keys
 	apiKey = k
@@ -54,6 +58,11 @@ func (y Youtube) RunService(k string, videoCategory string) error {
 
 	// get parameters list
 	pl := entities.GetParametersList()
+	publishedAfter := time.Now().AddDate(0, 0, -1).Format(time.RFC3339)
+
+	if pl.PublishedAfter != "" {
+		publishedAfter = pl.PublishedAfter
+	}
 
 	// create the call actions
 	call := youtubeService.Search.List(pl.Part)
@@ -62,7 +71,7 @@ func (y Youtube) RunService(k string, videoCategory string) error {
 	call.EventType(pl.EventType)
 	call.MaxResults(pl.MaxResults)
 	call.RelevanceLanguage(pl.Language)
-	call.PublishedAfter(pl.PublishedAfter)
+	call.PublishedAfter(publishedAfter)
 	call.Order(pl.Order)
 	call.VideoCategoryId(videoCategory)
 	call.Fields("prevPageToken,nextPageToken,items(id(videoId))")
@@ -81,7 +90,9 @@ func (y Youtube) RunService(k string, videoCategory string) error {
 	err = d.RemoveAll()
 
 	if err != nil {
-		logrus.Warning("Error to clean collection search control")
+		logrus.WithFields(logrus.Fields{
+			"err": err,
+		}).Warning("Error to clean collection search control")
 	}
 
 	logrus.WithFields(logrus.Fields{
@@ -130,9 +141,22 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 	// define the list
 	listID := &ListOfIdsFromSearch{IDs: id}
 
-	fmt.Printf("%+v\n", listID)
-	fmt.Println("")
-	fmt.Println(values.NextPageToken)
+	// check if the return is null
+	if len(listID.IDs) <= 0 {
+
+		// increment
+		totalNull++
+		fmt.Printf("null count: %v\n", totalNull)
+		// is more than 5
+		if totalNull >= 3 {
+			return errors.New("AP001 - Reached null api response")
+		}
+
+		return nil
+	}
+
+	// reset count null var because the last one was not empty
+	totalNull = 0
 
 	// send the message to rabbit
 	err := sendResponse(listID)

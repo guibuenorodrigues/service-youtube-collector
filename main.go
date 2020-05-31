@@ -29,8 +29,10 @@ func main() {
 
 	logrus.Info("Service has been started")
 
+	logrus.Info("Searching for videos ...")
 	startSearcher()
 
+	logrus.Info("Getting videos ...")
 	consumeVideo()
 
 }
@@ -125,10 +127,14 @@ func receivedVideoData(d amqp.Delivery) error {
 	// ys := NewYotubeService(authKeys[0])
 	ys := NewYotubeService()
 
-	err = ys.SearchVideoByID(justString, "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4")
+	err = ys.SearchVideoByID(justString, "AIzaSyDuHifom-_BKMQOMVWcbDRZkC_I3H3CgWc")
 
 	if err != nil {
-		_, err := verifyError403(err)
+		t, err := verifyError403(err)
+
+		if t {
+			logrus.Panic("Error 403 - need to be threated")
+		}
 
 		return err
 	}
@@ -136,44 +142,6 @@ func receivedVideoData(d amqp.Delivery) error {
 	return nil
 
 }
-
-// // TODO REMOVER DEPOIS
-// func teste() {
-
-// 	for {
-
-// 		service := rabbit.New()
-// 		conn, err := service.Connect()
-
-// 		if err != nil {
-// 			logrus.WithFields(logrus.Fields{
-// 				"error": err,
-// 			}).Error("Error to connect to the broker")
-// 		}
-
-// 		exchange, err := conn.Exchange("to.youtuber.videos")
-
-// 		if err != nil {
-// 			logrus.WithFields(logrus.Fields{
-// 				"error":    err,
-// 				"exchange": "to.youtuber.videos",
-// 			}).Error("Error to declare exchange")
-// 		}
-
-// 		_, err = exchange.Publish([]byte("{\"ids\": [\"BiGh9VXC53M\",\"_jBNp7Vrc5s\",\"P20K3YmfmnQ\"]}"))
-
-// 		if err != nil {
-// 			logrus.WithFields(logrus.Fields{
-// 				"error": err,
-// 			}).Error("Error to publish the message")
-// 		}
-
-// 		logrus.Info("Page has been sent to queue")
-
-// 		time.Sleep(500 * time.Millisecond)
-// 	}
-
-// }
 
 func startSearcher() {
 
@@ -191,7 +159,7 @@ func startSearcher() {
 	}
 
 	is403 := false
-	categoryList := []string{"10", "24"}
+	categoryList := []string{"10", "24", "23", "27", "34", "17"}
 	stoppedKey := 0
 
 	for key, val := range categoryList {
@@ -200,18 +168,23 @@ func startSearcher() {
 		err := ys.RunService(authKeys[0], val)
 
 		if err != nil {
-			t, _ := verifyError403(err)
-			is403 = t
-			stoppedKey = key
 
-			break
+			if strings.Contains(err.Error(), "AP001") {
+				continue
+			} else {
+				// check if the error is 403
+				t, _ := verifyError403(err)
+				// define if is or not
+				is403 = t
+				// save exactly the key that got 403
+				stoppedKey = key
+			}
 		}
 	}
 
 	if is403 {
 		retryList(categoryList, stoppedKey)
 	}
-
 }
 
 func retryList(category []string, key int) error {

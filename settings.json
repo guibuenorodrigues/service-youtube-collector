@@ -1,12 +1,12 @@
 {
     "list": {
-        "part": "id",
+        "part": "id,snippet",
         "eventType": "upcoming",
         "videoType": "video",
         "regionCode": "BR",
         "language": "pt",
-        "order": "date",
-        "publishedAfter": "2020-04-01T00:01:01.000Z",
+        "order": "relevance",
+        "publishedAfter": "2020-05-30T00:01:01.000Z",
         "location": "",
         "locationRadius": "",
         "maxResults": 50
