@@ -20,21 +20,40 @@ var (
 	environment = "development"
 	authKeys    []string
 	amqURL      = "amqp://guest:guest@127.0.0.1:5672"
-	wg          sync.WaitGroup
+
+	wg sync.WaitGroup
 )
 
 func main() {
 
+	// init the service
+	init()
+
+	// init log service
 	logInit()
 
-	logrus.Info("Service has been started")
+	// consultar black list no webserver (buscar no endpoint a ser disponibilizado)
+	// TODO
 
-	logrus.Info("Searching for videos ...")
+	// buscar videos list de upcomings
+	logrus.Info("Searching for videos on search.list by upcoming videos ...")
 	startSearcher()
 
-	logrus.Info("Getting videos ...")
-	consumeVideo()
+	logrus.Info("Searching for videos on playlist.list by ...")
+	startPlaylist()
 
+	// trata videos recebidos
+	logrus.Info("Processing all the videos from the queue ...")
+	consumeVideo()
+}
+
+func init() {
+
+	fmt.Println("")
+	fmt.Println("=============================================")
+	fmt.Println("The service has been started ...")
+	fmt.Println("=============================================")
+	fmt.Println("")
 }
 
 func consumeVideo() {
@@ -145,8 +164,6 @@ func receivedVideoData(d amqp.Delivery) error {
 
 func startSearcher() {
 
-	logrus.Info("() Starter ...")
-
 	// obtem as keys de acesso da base somente na primeira execução, nas demais utiliza a variavel armazenada
 	authKeys = entities.GetAuthKeys()
 
@@ -160,6 +177,7 @@ func startSearcher() {
 
 	is403 := false
 	categoryList := []string{"10", "24", "23", "27", "34", "17"}
+	//categoryList := []string{"24", "23", "27", "34", "17"}
 	stoppedKey := 0
 
 	for key, val := range categoryList {
@@ -185,6 +203,28 @@ func startSearcher() {
 	if is403 {
 		retryList(categoryList, stoppedKey)
 	}
+}
+
+func startPlaylist() {
+
+	authKeys = entities.GetAuthKeys()
+
+	if len(authKeys) <= 0 {
+		logrus.WithFields(logrus.Fields{
+			"autheKeysCount": "0",
+		}).Error("There are no more auth keys available")
+
+		panic(1)
+	}
+
+	ys := NewYotubeService()
+	err := ys.RunByPlaylist(authKeys[0], "PLU12uITxBEPHVRSbtjyfmi1Klzam7qQkv")
+
+	if err != nil {
+		logrus.Error(err)
+
+	}
+
 }
 
 func retryList(category []string, key int) error {

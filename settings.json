@@ -3,7 +3,7 @@
         "part": "id,snippet",
         "eventType": "upcoming",
         "videoType": "video",
-        "regionCode": "BR",
+        "regionCode": "br",
         "language": "pt",
         "order": "relevance",
         "publishedAfter": "",
@@ -15,6 +15,6 @@
         "part": "id,liveStreamingDetails,snippet,player,recordingDetails,statistics"
     },
     "auth": [
-        "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4"
+        "AIzaSyBwO4r28U2t5W2yhTmKhdjZKtfBXBOapw4"
     ]
 }

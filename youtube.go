@@ -28,6 +28,11 @@ type MessageResponseVideo struct {
 type Youtube struct {
 }
 
+// ListOfIdsFromSearch struct
+type ListOfIdsFromSearch struct {
+	IDs []string `json:"ids"`
+}
+
 // NewYotubeService - creates a new instance
 func NewYotubeService() Youtube {
 	return Youtube{}
@@ -37,16 +42,12 @@ var totalAlreadyProcessed = 0
 var categoryID = ""
 var totalNull = 0
 
-// RunService - retrieve the videos from search list
-func (y Youtube) RunService(k string, videoCategory string) error {
-
-	totalNull = 0
-
-	// set the keys
-	apiKey = k
-	categoryID = videoCategory
+// RunByPlaylist search by playlist ID
+func (y Youtube) RunByPlaylist(k string, playlistID string) error {
 
 	flag.Parse()
+
+	apiKey = k
 
 	ctx := context.Background()
 
@@ -56,86 +57,51 @@ func (y Youtube) RunService(k string, videoCategory string) error {
 		return err
 	}
 
-	// get parameters list
-	pl := entities.GetParametersList()
-	publishedAfter := time.Now().AddDate(0, 0, -1).Format(time.RFC3339)
+	call := youtubeService.PlaylistItems.List("snippet")
+	call.PlaylistId(playlistID)
+	call.MaxResults(50)
+	err = call.Pages(ctx, addPlaylistPaginedResults)
 
-	if pl.PublishedAfter != "" {
-		publishedAfter = pl.PublishedAfter
-	}
-
-	// create the call actions
-	call := youtubeService.Search.List(pl.Part)
-	call.RegionCode(pl.RegionCode)
-	call.Type(pl.VideoType)
-	call.EventType(pl.EventType)
-	call.MaxResults(pl.MaxResults)
-	call.RelevanceLanguage(pl.Language)
-	call.PublishedAfter(publishedAfter)
-	call.Order(pl.Order)
-	call.VideoCategoryId(videoCategory)
-	call.Fields("prevPageToken,nextPageToken,items(id(videoId))")
-
-	// run paged result
-	err = call.Pages(ctx, addPaginedResults)
-
-	if err != nil {
-		return err
-	}
-
-	// before move on , we delete the remaining data on the search control collection. It means that all the page were looked up properly
-
-	var d = dao.SearchResultControl{}
-	d.Connect("mongodb://127.0.0.1:27017", "soliveboa")
-	err = d.RemoveAll()
-
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"err": err,
-		}).Warning("Error to clean collection search control")
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"Category": categoryID,
-	}).Info("Finished pages from search list")
-
-	return nil
+	return err
 
 }
 
-// ListOfIdsFromSearch struct
-type ListOfIdsFromSearch struct {
-	IDs []string `json:"ids"`
-}
-
-func addPaginedResults(values *youtube.SearchListResponse) error {
+func addPlaylistPaginedResults(values *youtube.PlaylistItemListResponse) error {
 
 	totalAlreadyProcessed++
 
-	logrus.WithFields(logrus.Fields{
-		"Category": categoryID,
-	}).Info("Processing pages from search list")
-
-	var dd = dao.SearchResultControl{}
-	dd.Connect("mongodb://127.0.0.1:27017", "soliveboa")
-	_ = dd.RemoveAll()
-
 	if len(values.Items) < 0 {
-		logrus.Warn("The message receive from API doesnt't have any item")
+		logrus.Warn("The message receive from API doesnt't have any item: Playlist!!")
 		return nil
 	}
+
+	//define tokens
+	var nextToken = values.NextPageToken
+	//var prev = values.PrevPageToken
 
 	// define id array
 	var id []string
 
+	// define db connection
+	bckService := dao.NewBlacklistService()
+
 	// looping through the items
 	for key := range values.Items {
 
-		if values.Items[key].Id.VideoId == "" {
+		vid := values.Items[key].Snippet.ResourceId.VideoId
+		channel := values.Items[key].Snippet.ChannelId
+
+		if vid == "" {
 			logrus.Warning("ATTENTION: the video ID is null")
 		}
 
-		id = append(id, values.Items[key].Id.VideoId)
+		bck := bckService.Show(channel)
+
+		// se não estiver na black list, então carrego
+		if bck.ID <= 0 {
+			id = append(id, vid)
+		}
+
 	}
 
 	// define the list
@@ -147,8 +113,13 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 		// increment
 		totalNull++
 		fmt.Printf("null count: %v\n", totalNull)
+
+		tokenRec := dao.NewTokenRecoveryService()
+		b := dao.TokenRecovery{NextToken: nextToken}
+		tokenRec.Insert(b)
+
 		// is more than 5
-		if totalNull >= 3 {
+		if totalNull >= 5 {
 			return errors.New("AP001 - Reached null api response")
 		}
 
@@ -169,16 +140,155 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 
 	}
 
-	var next = values.NextPageToken
-	var prev = values.PrevPageToken
+	logrus.WithFields(logrus.Fields{
+		"Proccessed": totalAlreadyProcessed,
+	}).Info(" [~] Total of videos proccessed ...")
 
-	// justString := strings.Join(id, ",")
+	return nil
 
-	var d = dao.SearchResultControl{}
-	data := dao.SearchResultControlModel{NextPageToken: next, PrevPageToken: prev, InsertedAt: time.Now()}
+}
 
-	d.Connect("mongodb://127.0.0.1:27017", "soliveboa")
-	_, _ = d.Create(data)
+// RunService - retrieve the videos from search list
+func (y Youtube) RunService(k string, videoCategory string) error {
+
+	totalNull = 0
+
+	// set the keys
+	apiKey = k
+	categoryID = videoCategory
+
+	logrus.WithFields(logrus.Fields{
+		"Category": categoryID,
+	}).Info("[<] Started pages from search list")
+
+	flag.Parse()
+
+	ctx := context.Background()
+
+	youtubeService, err := youtube.NewService(ctx, option.WithAPIKey(apiKey))
+
+	if err != nil {
+		return err
+	}
+
+	// get parameters list
+	pl := entities.GetParametersList()
+	publishedAfter := time.Now().AddDate(0, 0, -1).Format(time.RFC3339)
+
+	if pl.PublishedAfter != "" {
+		publishedAfter = pl.PublishedAfter
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"Published After": publishedAfter,
+	}).Info("Using Pusblished after as: ")
+
+	// create the call actions
+	call := youtubeService.Search.List(pl.Part)
+	call.RegionCode(pl.RegionCode)
+	call.Type(pl.VideoType)
+	call.EventType(pl.EventType)
+	call.MaxResults(pl.MaxResults)
+	call.RelevanceLanguage(pl.Language)
+	call.PublishedAfter(publishedAfter)
+	call.Order(pl.Order)
+	call.VideoCategoryId(videoCategory)
+	call.Fields("prevPageToken,nextPageToken,items(id(videoId),snippet(channelId))")
+
+	// run paged result
+	err = call.Pages(ctx, addPaginedResults)
+
+	if err != nil {
+		return err
+	}
+
+	// before move on , we delete the remaining data on the search control collection. It means that all the page were looked up properly
+
+	logrus.WithFields(logrus.Fields{
+		"Category": categoryID,
+	}).Info("[>] Finished pages from search list")
+
+	return nil
+
+}
+
+func addPaginedResults(values *youtube.SearchListResponse) error {
+
+	totalAlreadyProcessed++
+
+	if len(values.Items) < 0 {
+		logrus.Warn("The message receive from API doesnt't have any item")
+		return nil
+	}
+
+	//define tokens
+	var nextToken = values.NextPageToken
+	//var prev = values.PrevPageToken
+
+	// define id array
+	var id []string
+
+	// define db connection
+	bckService := dao.NewBlacklistService()
+
+	// looping through the items
+	for key := range values.Items {
+
+		vid := values.Items[key].Id.VideoId
+		channel := values.Items[key].Snippet.ChannelId
+
+		if vid == "" {
+			logrus.Warning("ATTENTION: the video ID is null")
+		}
+
+		bck := bckService.Show(channel)
+
+		// se não estiver na black list, então carrego
+		if bck.ID <= 0 {
+			id = append(id, vid)
+		}
+
+	}
+
+	// define the list
+	listID := &ListOfIdsFromSearch{IDs: id}
+
+	// check if the return is null
+	if len(listID.IDs) <= 0 {
+
+		// increment
+		totalNull++
+		fmt.Printf("null count: %v\n", totalNull)
+
+		tokenRec := dao.NewTokenRecoveryService()
+		b := dao.TokenRecovery{NextToken: nextToken}
+		tokenRec.Insert(b)
+
+		// is more than 5
+		if totalNull >= 5 {
+			return errors.New("AP001 - Reached null api response")
+		}
+
+		return nil
+	}
+
+	// reset count null var because the last one was not empty
+	totalNull = 0
+
+	// send the message to rabbit
+	err := sendResponse(listID)
+
+	if err != nil {
+
+		logrus.WithFields(logrus.Fields{
+			"error": err,
+		}).Error("Error to send message to queue")
+
+	}
+
+	logrus.WithFields(logrus.Fields{
+		"Proccessed": totalAlreadyProcessed,
+	}).Info(" [~] Total of videos proccessed ...")
 
 	return nil
 }
