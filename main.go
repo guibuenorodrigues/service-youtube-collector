@@ -27,7 +27,7 @@ var (
 func main() {
 
 	// init the service
-	init()
+	initService()
 
 	// init log service
 	logInit()
@@ -47,7 +47,7 @@ func main() {
 	consumeVideo()
 }
 
-func init() {
+func initService() {
 
 	fmt.Println("")
 	fmt.Println("=============================================")
