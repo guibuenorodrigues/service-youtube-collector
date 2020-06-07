@@ -452,6 +452,11 @@ func (y Youtube) ProcessVideo(r *MessageResponseVideo) error {
 		return err
 	}
 
+	// salva no banco de dados o ID
+	videoService := dao.NewVideosService()
+	video := dao.Videos{VideoID: r.Videos.Items[0].Id, ChannelID: r.Videos.Items[0].Snippet.ChannelId}
+	videoService.Insert(video)
+
 	logrus.WithFields(logrus.Fields{
 		"id":     r.Videos.Items[0].Id,
 		"action": "video",

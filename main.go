@@ -211,9 +211,9 @@ func receivedVideoData(d amqp.Delivery) error {
 	var videos []string
 
 	// looping pelos ids recebidos pela mensage
-	for key := range message.IDs {
+	for _, val := range message.IDs {
 		// consulto no banco de dados
-		v := videoDao.Show(message.IDs[key])
+		v := videoDao.Show(val)
 		// se existir então pulo o video
 		if v.ID > 0 {
 
@@ -226,7 +226,7 @@ func receivedVideoData(d amqp.Delivery) error {
 		}
 
 		// adiciono na lista de videos
-		videos = append(videos, v.VideoID)
+		videos = append(videos, val)
 	}
 
 	// convert into string a lista de videos. Será utilizada no campo de pesquisa do youtube
