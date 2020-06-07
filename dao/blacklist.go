@@ -100,8 +100,10 @@ func (s BlacklistService) Show(chanID string) Blacklist {
 
 	for selSQL.Next() {
 
+		var id int
 		var channelID string
-		err = selSQL.Scan(&channelID)
+
+		err = selSQL.Scan(&id, &channelID)
 
 		if err != nil {
 			logrus.WithFields(logrus.Fields{
@@ -111,6 +113,7 @@ func (s BlacklistService) Show(chanID string) Blacklist {
 			}).Error("Error running for - channel ID")
 		}
 
+		bck.ID = id
 		bck.ChannelID = channelID
 	}
 

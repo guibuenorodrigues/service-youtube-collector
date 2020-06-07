@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"soliveboa/youtuber/v2/dao"
 	"soliveboa/youtuber/v2/entities"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -20,6 +23,7 @@ var (
 	environment = "development"
 	authKeys    []string
 	amqURL      = "amqp://guest:guest@127.0.0.1:5672"
+	webserver   = "http://soliveboa.com.br"
 
 	wg sync.WaitGroup
 )
@@ -34,16 +38,18 @@ func main() {
 
 	// consultar black list no webserver (buscar no endpoint a ser disponibilizado)
 	// TODO
+	logrus.Info("[  *  ] Searching for videos on blacklist web ...")
+	startWebBlacklistSearch()
 
 	// buscar videos list de upcomings
-	logrus.Info("Searching for videos on search.list by upcoming videos ...")
+	logrus.Info("[  *  ] Searching for videos on search.list by upcoming videos ...")
 	startSearcher()
 
-	logrus.Info("Searching for videos on playlist.list by ...")
+	logrus.Info("[  *  ] Searching for videos on playlist.list by ...")
 	startPlaylist()
 
 	// trata videos recebidos
-	logrus.Info("Processing all the videos from the queue ...")
+	logrus.Info("[  *  ] Processing all the videos from the queue ...")
 	consumeVideo()
 }
 
@@ -54,6 +60,77 @@ func initService() {
 	fmt.Println("The service has been started ...")
 	fmt.Println("=============================================")
 	fmt.Println("")
+}
+
+// BlacklistWEB struct for web blacklist
+type BlacklistWEB struct {
+	ID      string `json:"id"`
+	IDCanal string `json:"id_canal"`
+}
+
+func startWebBlacklistSearch() {
+
+	response, err := http.Get(webserver + "/services/get-blacklist")
+
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"err":      err.Error(),
+			"endpoint": webserver + "/services/get-blacklist",
+		}).Error("Error to GET api data")
+
+		return
+	}
+
+	// close connection
+	defer response.Body.Close()
+
+	contents, err := ioutil.ReadAll(response.Body)
+
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"err":      err.Error(),
+			"endpoint": webserver + "/services/get-blacklist",
+		}).Error("Error to ready body from api data")
+
+		return
+	}
+
+	blacklistWeb := []BlacklistWEB{}
+
+	err = json.Unmarshal(contents, &blacklistWeb)
+
+	if err != nil {
+
+		logrus.WithFields(logrus.Fields{
+			"err":      err.Error(),
+			"endpoint": webserver + "/services/get-blacklist",
+		}).Error("Error to unmarshall body from api data")
+
+		return
+	}
+
+	// run all the data received and insert into the database
+	blackListService := dao.NewBlacklistService()
+
+	c := 0
+
+	for key := range blacklistWeb {
+
+		// search the channel id in the database
+		search := blackListService.Show(blacklistWeb[key].IDCanal)
+
+		// if do not found, then insert it
+		if len(search.ChannelID) <= 0 {
+			bl := dao.Blacklist{ChannelID: blacklistWeb[key].IDCanal}
+			blackListService.Insert(bl)
+
+			c++
+		}
+
+	}
+
+	logrus.Info(strconv.Itoa(c) + " new blacklist item(s) ...")
+
 }
 
 func consumeVideo() {
@@ -111,7 +188,6 @@ func consumeVideo() {
 }
 
 func receivedVideoData(d amqp.Delivery) error {
-	// d ListOfIdsFromSearch
 
 	logrus.Info("Video received from queue")
 
@@ -127,20 +203,35 @@ func receivedVideoData(d amqp.Delivery) error {
 		return err
 	}
 
-	// obtem as keys de acesso da base somente na primeira execução, nas demais utiliza a variavel armazenada
-	// authKeys = entities.GetAuthKeys()
+	// valida se o video já foi coletado em algum momento no passado
+	// consulto o id no banco de dados, e se já estiver lá , não adiciono a lista de ids.
+	// Assim a API irá buscar apenas os videos necessários
+	// pra isso defino o dao service
+	videoDao := dao.NewVideosService()
+	var videos []string
 
-	// if len(authKeys) <= 0 {
-	// 	logrus.WithFields(logrus.Fields{
-	// 		"autheKeysCount": "0",
-	// 		"action":         "video",
-	// 	}).Error("There are no more auth keys available")
+	// looping pelos ids recebidos pela mensage
+	for key := range message.IDs {
+		// consulto no banco de dados
+		v := videoDao.Show(message.IDs[key])
+		// se existir então pulo o video
+		if v.ID > 0 {
 
-	// 	return errors.New("There are no more auth keys available")
-	// }
+			logrus.WithFields(logrus.Fields{
+				"id":       v.ID,
+				"video_id": v.VideoID,
+			}).Info("Video refused because it has already been sent!!")
 
-	// convert into string
-	justString := strings.Join(message.IDs, ",")
+			continue
+		}
+
+		// adiciono na lista de videos
+		videos = append(videos, v.VideoID)
+	}
+
+	// convert into string a lista de videos. Será utilizada no campo de pesquisa do youtube
+	justString := strings.Join(videos, ",")
+	// justString := strings.Join(message.IDs, ",")
 
 	// call the service
 	// ys := NewYotubeService(authKeys[0])

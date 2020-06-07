@@ -228,7 +228,7 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 	// define id array
 	var id []string
 
-	// define db connection
+	// Define dao services
 	bckService := dao.NewBlacklistService()
 
 	// looping through the items
@@ -244,9 +244,12 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 		bck := bckService.Show(channel)
 
 		// se não estiver na black list, então carrego
-		if bck.ID <= 0 {
-			id = append(id, vid)
+		if bck.ID > 0 {
+			continue
 		}
+
+		// add to the list of videos
+		id = append(id, vid)
 
 	}
 
