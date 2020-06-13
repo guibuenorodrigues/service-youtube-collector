@@ -10,9 +10,11 @@ import (
 
 // Settings strcut
 type Settings struct {
-	List  ListParameters  `json:"list"`
-	Video VideoParameters `json:"video"`
-	Auth  []string        `json:"auth"`
+	List       ListParameters  `json:"list"`
+	Video      VideoParameters `json:"video"`
+	Auth       []string        `json:"auth"`
+	Categories []string        `json:"categories"`
+	Rabbit     RabbitSettings  `json:"rabbit"`
 }
 
 // ListParameters - Define the parameters to return the list
@@ -34,6 +36,14 @@ type ListParameters struct {
 // VideoParameters - Define the parameters to return vide
 type VideoParameters struct {
 	Part string `json:"part"`
+}
+
+// RabRabbitSettings model
+type RabbitSettings struct {
+	Hostname string `json:"hostname"`
+	Port     string `json:"port"`
+	User     string `json:"user"`
+	Pass     string `json:"pass"`
 }
 
 var dataSettings Settings
@@ -96,4 +106,22 @@ func GetParametersVideo() VideoParameters {
 func GetAuthKeys() []string {
 	loadData()
 	return dataSettings.Auth
+}
+
+func GetCategories() []string {
+	loadData()
+	return dataSettings.Categories
+}
+
+func GetRabbitSettings() RabbitSettings {
+	loadData()
+	return dataSettings.Rabbit
+}
+
+func GetRabbitConnString() string {
+
+	rabbit := GetRabbitSettings()
+
+	return "amqp://" + rabbit.User + ":" + rabbit.Pass + "@" + rabbit.Hostname + ":" + rabbit.Port
+
 }

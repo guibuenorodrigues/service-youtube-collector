@@ -1,7 +1,7 @@
 package rabbit
 
 import (
-	"os"
+	"soliveboa/youtuber/v2/entities"
 
 	guuid "github.com/google/uuid"
 
@@ -105,14 +105,6 @@ func (p *PublisherCall) Publish(body []byte) (*PublisherCall, error) {
 
 func preapreURL() string {
 
-	// define variable url
-	_url := os.Getenv("AMQ_URL")
+	return entities.GetRabbitConnString()
 
-	// if after all it's still empty, define a standard one
-	if _url == "" {
-		_url = "amqp://guest:guest@127.0.0.1:5672"
-	}
-
-	// return URL
-	return _url
 }

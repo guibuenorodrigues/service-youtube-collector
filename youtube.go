@@ -179,10 +179,6 @@ func (y Youtube) RunService(k string, videoCategory string) error {
 		publishedAfter = pl.PublishedAfter
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"Published After": publishedAfter,
-	}).Info("Using Pusblished after as: ")
-
 	// create the call actions
 	call := youtubeService.Search.List(pl.Part)
 	call.RegionCode(pl.RegionCode)
@@ -245,12 +241,17 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 
 		// se não estiver na black list, então carrego
 		if bck.ID > 0 {
+
+			logrus.WithFields(logrus.Fields{
+				"channel_id": channel,
+				"video_id":   vid,
+			}).Info("Video refused because his channel is included into the blacklist")
+
 			continue
+		} else {
+			// add to the list of videos
+			id = append(id, vid)
 		}
-
-		// add to the list of videos
-		id = append(id, vid)
-
 	}
 
 	// define the list
@@ -291,7 +292,7 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 
 	logrus.WithFields(logrus.Fields{
 		"Proccessed": totalAlreadyProcessed,
-	}).Info(" [~] Total of videos proccessed ...")
+	}).Info(" [~] Total of list proccessed ...")
 
 	return nil
 }

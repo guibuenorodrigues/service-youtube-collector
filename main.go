@@ -12,7 +12,6 @@ import (
 	"soliveboa/youtuber/v2/entities"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
@@ -24,8 +23,6 @@ var (
 	authKeys    []string
 	amqURL      = "amqp://guest:guest@127.0.0.1:5672"
 	webserver   = "http://soliveboa.com.br"
-
-	wg sync.WaitGroup
 )
 
 func main() {
@@ -45,7 +42,7 @@ func main() {
 	logrus.Info("[  *  ] Searching for videos on search.list by upcoming videos ...")
 	startSearcher()
 
-	logrus.Info("[  *  ] Searching for videos on playlist.list by ...")
+	logrus.Info("[  *  ] Searching for videos on playlist.list {upcoming videos} by ...")
 	startPlaylist()
 
 	// trata videos recebidos
@@ -60,6 +57,10 @@ func initService() {
 	fmt.Println("The service has been started ...")
 	fmt.Println("=============================================")
 	fmt.Println("")
+
+	fmt.Println("Loading rabbit settings")
+	amqURL = entities.GetRabbitConnString()
+
 }
 
 // BlacklistWEB struct for web blacklist
@@ -223,10 +224,10 @@ func receivedVideoData(d amqp.Delivery) error {
 			}).Info("Video refused because it has already been sent!!")
 
 			continue
+		} else {
+			// adiciono na lista de videos
+			videos = append(videos, val)
 		}
-
-		// adiciono na lista de videos
-		videos = append(videos, val)
 	}
 
 	// convert into string a lista de videos. Será utilizada no campo de pesquisa do youtube
@@ -267,8 +268,9 @@ func startSearcher() {
 	}
 
 	is403 := false
-	categoryList := []string{"10", "24", "23", "27", "34", "17"}
-	//categoryList := []string{"24", "23", "27", "34", "17"}
+	//categoryList := []string{"10", "24", "23", "27", "34", "17"}
+	categoryList := entities.GetCategories()
+
 	stoppedKey := 0
 
 	for key, val := range categoryList {
