@@ -1,4 +1,5 @@
 {
+    "env": "production",
     "list": {
         "part": "id,snippet",
         "eventType": "upcoming",
@@ -15,13 +16,16 @@
         "part": "id,liveStreamingDetails,snippet,player,recordingDetails,statistics"
     },
     "auth": [
-        "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4"
+        "AIzaSyDuHifom-_BKMQOMVWcbDRZkC_I3H3CgWc",
+        "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4",
+        "AIzaSyBwO4r28U2t5W2yhTmKhdjZKtfBXBOapw4"
     ],
     "categories":["10", "24", "23", "27", "34", "17"],
+    "playlists": ["PLU12uITxBEPHVRSbtjyfmi1Klzam7qQkv"],
     "rabbit":{
-        "hostname": "BRSAOCND7220C2Y",
+        "hostname": "192.168.100.172",
         "port": "5672",
-        "user": "guest",
-        "pass": "guest"
+        "user": "remote",
+        "pass": "remote"
     }
 }

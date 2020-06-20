@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -13,16 +14,22 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/abadojack/whatlanggo"
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 )
 
 var (
-	logPath     = "log.txt"
-	environment = "development"
-	authKeys    []string
-	amqURL      = "amqp://guest:guest@127.0.0.1:5672"
-	webserver   = "http://soliveboa.com.br"
+	logPath       = "log_youtuber.log"
+	environment   = "development"
+	authKeys      []string
+	amqURL        = "amqp://guest:guest@127.0.0.1:5672"
+	webserver     = "http://soliveboa.com.br"
+	nonFlag       = false
+	flagBlackList bool
+	flagPlaylist  bool
+	flagSearcher  bool
+	flagVideo     bool
 )
 
 func main() {
@@ -34,23 +41,54 @@ func main() {
 	logInit()
 
 	// consultar black list no webserver (buscar no endpoint a ser disponibilizado)
-	// TODO
-	logrus.Info("[  *  ] Searching for videos on blacklist web ...")
-	startWebBlacklistSearch()
+	if nonFlag || flagBlackList {
+		logrus.Info("[  *  ] Searching for videos on blacklist web ...")
+		startWebBlacklistSearch()
+	}
+
+	if nonFlag || flagPlaylist {
+		logrus.Info("[  *  ] Searching for videos on playlist.list {upcoming videos} by ...")
+		startPlaylist()
+	}
 
 	// buscar videos list de upcomings
-	logrus.Info("[  *  ] Searching for videos on search.list by upcoming videos ...")
-	startSearcher()
+	if nonFlag || flagSearcher {
+		logrus.Info("[  *  ] Searching for videos on search.list by upcoming videos ...")
+		startSearcher()
+	}
 
-	logrus.Info("[  *  ] Searching for videos on playlist.list {upcoming videos} by ...")
-	startPlaylist()
-
-	// trata videos recebidos
-	logrus.Info("[  *  ] Processing all the videos from the queue ...")
-	consumeVideo()
+	// // trata videos recebidos
+	if nonFlag || flagVideo {
+		logrus.Info("[  *  ] Processing all the videos from the queue ...")
+		consumeVideo()
+	}
 }
 
+func translate(text string) (string, string) {
+
+	info := whatlanggo.Detect("Live - Luan Estilizado, Vicente Nery, Edson Lima - À Vontade | #FiqueEmCasa e Cante #Comigo")
+	//fmt.Println("Language:", info.Lang.String(), " Script:", whatlanggo.Scripts[info.Script], " Confidence: ", info.Confidence)
+
+	c := fmt.Sprintf("%f", info.Confidence)
+
+	return info.Lang.String(), c
+
+}
+
+//var flagBlackList bool
+
 func initService() {
+
+	flag.BoolVar(&flagBlackList, "b", false, "run only the blacklist loading")
+	flag.BoolVar(&flagPlaylist, "p", false, "run only the playlist")
+	flag.BoolVar(&flagSearcher, "s", false, "run only the searcher")
+	flag.BoolVar(&flagVideo, "v", false, "run only the videos available in the consumer")
+	flag.Parse()
+
+	// if there is no flag , consider as running all the robot
+	if !flagBlackList && !flagPlaylist && !flagSearcher && !flagVideo {
+		nonFlag = true
+	}
 
 	fmt.Println("")
 	fmt.Println("=============================================")
@@ -58,8 +96,8 @@ func initService() {
 	fmt.Println("=============================================")
 	fmt.Println("")
 
-	fmt.Println("Loading rabbit settings")
 	amqURL = entities.GetRabbitConnString()
+	environment = entities.GetEnv()
 
 }
 
@@ -176,10 +214,13 @@ func consumeVideo() {
 		for d := range msgs {
 			err := receivedVideoData(d)
 
-			if err == nil {
-				d.Ack(false)
-			} else {
-				d.Reject(true)
+			d.Ack(false)
+
+			if err != nil {
+				//d.Reject(true)
+				logrus.WithFields(logrus.Fields{
+					"err": err,
+				}).Warning("Message Rejected due to an error!!!")
 			}
 		}
 	}()
@@ -189,6 +230,8 @@ func consumeVideo() {
 }
 
 func receivedVideoData(d amqp.Delivery) error {
+
+	authKeys = entities.GetAuthKeys()
 
 	logrus.Info("Video received from queue")
 
@@ -211,6 +254,9 @@ func receivedVideoData(d amqp.Delivery) error {
 	videoDao := dao.NewVideosService()
 	var videos []string
 
+	i := 0
+	t := 0
+
 	// looping pelos ids recebidos pela mensage
 	for _, val := range message.IDs {
 		// consulto no banco de dados
@@ -222,13 +268,19 @@ func receivedVideoData(d amqp.Delivery) error {
 				"id":       v.ID,
 				"video_id": v.VideoID,
 			}).Info("Video refused because it has already been sent!!")
-
-			continue
 		} else {
 			// adiciono na lista de videos
 			videos = append(videos, val)
+			i++
 		}
+
+		t++
 	}
+
+	logrus.WithFields(logrus.Fields{
+		"total":     strconv.Itoa(t),
+		"proccesed": strconv.Itoa(i),
+	}).Info("[==] videos to be search after remove duplicates")
 
 	// convert into string a lista de videos. Será utilizada no campo de pesquisa do youtube
 	justString := strings.Join(videos, ",")
@@ -238,7 +290,7 @@ func receivedVideoData(d amqp.Delivery) error {
 	// ys := NewYotubeService(authKeys[0])
 	ys := NewYotubeService()
 
-	err = ys.SearchVideoByID(justString, "AIzaSyDuHifom-_BKMQOMVWcbDRZkC_I3H3CgWc")
+	err = ys.SearchVideoByID(justString, authKeys[2])
 
 	if err != nil {
 		t, err := verifyError403(err)
@@ -263,12 +315,10 @@ func startSearcher() {
 		logrus.WithFields(logrus.Fields{
 			"autheKeysCount": "0",
 		}).Error("There are no more auth keys available")
-
-		panic(1)
 	}
 
 	is403 := false
-	//categoryList := []string{"10", "24", "23", "27", "34", "17"}
+
 	categoryList := entities.GetCategories()
 
 	stoppedKey := 0
@@ -306,15 +356,19 @@ func startPlaylist() {
 		logrus.WithFields(logrus.Fields{
 			"autheKeysCount": "0",
 		}).Error("There are no more auth keys available")
-
-		panic(1)
 	}
 
-	ys := NewYotubeService()
-	err := ys.RunByPlaylist(authKeys[0], "PLU12uITxBEPHVRSbtjyfmi1Klzam7qQkv")
+	p := entities.GetPlaylists()
 
-	if err != nil {
-		logrus.Error(err)
+	for _, val := range p {
+
+		ys := NewYotubeService()
+		err := ys.RunByPlaylist(authKeys[1], val)
+
+		if err != nil {
+			logrus.Error(err)
+
+		}
 
 	}
 
@@ -422,19 +476,22 @@ func logInit() {
 
 	}
 
+	logrus.SetLevel(logrus.DebugLevel)
+
 	// ===================
 	// EXAMPLES
 	// ===================
-	// logrus.Info("Some info. Earth is not flat.")
-	// log.Warning("This is a warning")
-	// log.Error("Not fatal. An error. Won't stop execution")
-	// log.Fatal("MAYDAY MAYDAY MAYDAY. Execution will be stopped here")
-	// log.Panic("Do not panic")
+	// logrus.Trace("Something very low level.")
+	// logrus.Debug("Useful debugging information.")
+	// logrus.Info("Something noteworthy happened!")
+	// logrus.Warn("You should probably take a look at this.")
+	// logrus.Error("Something failed but I'm not quitting.")
 
-	// log.WithFields(log.Fields{
-	// 	"animal": "walrus",
-	// 	"size":   10,
-	// }).Info("A group of walrus emerges from the ocean")
+	// Calls os.Exit(1) after logging
+	// logrus.Fatal("Bye.")
+
+	// Calls panic() after logging
+	// logrus.Panic("I'm bailing.")
 
 }
 

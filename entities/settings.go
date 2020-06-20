@@ -10,10 +10,12 @@ import (
 
 // Settings strcut
 type Settings struct {
+	Env        string          `json:"env"`
 	List       ListParameters  `json:"list"`
 	Video      VideoParameters `json:"video"`
 	Auth       []string        `json:"auth"`
 	Categories []string        `json:"categories"`
+	Playlists  []string        `json:"playlists"`
 	Rabbit     RabbitSettings  `json:"rabbit"`
 }
 
@@ -87,8 +89,13 @@ func loadData() {
 	}
 }
 
+// GeGetEnv method
+func GetEnv() string {
+	loadData()
+	return dataSettings.Env
+}
+
 // GetParametersList method
-// retrieve all the parameters to run a search on a list endpoint
 func GetParametersList() ListParameters {
 
 	loadData()
@@ -108,16 +115,25 @@ func GetAuthKeys() []string {
 	return dataSettings.Auth
 }
 
+// GetGetCategories method
 func GetCategories() []string {
 	loadData()
 	return dataSettings.Categories
 }
 
+// GetGetPlaylists methodo
+func GetPlaylists() []string {
+	loadData()
+	return dataSettings.Playlists
+}
+
+// GetGetRabbitSettings method
 func GetRabbitSettings() RabbitSettings {
 	loadData()
 	return dataSettings.Rabbit
 }
 
+// getGetRabbitConnString method
 func GetRabbitConnString() string {
 
 	rabbit := GetRabbitSettings()
