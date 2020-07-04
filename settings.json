@@ -1,5 +1,5 @@
 {
-    "env": "production",
+    "env": "development",
     "list": {
         "part": "id,snippet",
         "eventType": "upcoming",
@@ -20,12 +20,27 @@
         "AIzaSyBvK4DPRkg5Ut174Ob6DmIFO25vDNY3rR4",
         "AIzaSyBwO4r28U2t5W2yhTmKhdjZKtfBXBOapw4"
     ],
-    "categories":["10", "24", "23", "27", "34", "17"],
-    "playlists": ["PLU12uITxBEPHVRSbtjyfmi1Klzam7qQkv"],
-    "rabbit":{
+    "categories": [
+        "10",
+        "24",
+        "23",
+        "27",
+        "34",
+        "17"
+    ],
+    "playlists": [
+        "PLU12uITxBEPHVRSbtjyfmi1Klzam7qQkv"
+    ],
+    "rabbit": {
         "hostname": "192.168.100.172",
         "port": "5672",
         "user": "remote",
         "pass": "remote"
+    },
+    "webServer": {
+        "baseUrl": "http://soliveboa.com.br",
+        "endpoints": {
+            "channels": "/services/get-channels"
+        }
     }
 }

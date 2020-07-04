@@ -5,31 +5,29 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"soliveboa/youtuber/v2/dao"
 	"soliveboa/youtuber/v2/entities"
+	_errors "soliveboa/youtuber/v2/errors"
 	"strconv"
 	"strings"
 
-	"github.com/abadojack/whatlanggo"
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
 )
 
 var (
-	logPath       = "log_youtuber.log"
-	environment   = "development"
-	authKeys      []string
-	amqURL        = "amqp://guest:guest@127.0.0.1:5672"
-	webserver     = "http://soliveboa.com.br"
-	nonFlag       = false
-	flagBlackList bool
-	flagPlaylist  bool
-	flagSearcher  bool
-	flagVideo     bool
+	logPath      = "log_youtuber.log"
+	environment  = "development"
+	authKeys     []string
+	amqURL       string
+	webserver    string
+	endpoints    entities.WebServerEndpoints
+	nonFlag      = false
+	flagPlaylist bool
+	flagSearcher bool
+	flagVideo    bool
 )
 
 func main() {
@@ -40,21 +38,17 @@ func main() {
 	// init log service
 	logInit()
 
-	// consultar black list no webserver (buscar no endpoint a ser disponibilizado)
-	if nonFlag || flagBlackList {
-		logrus.Info("[  *  ] Searching for videos on blacklist web ...")
-		startWebBlacklistSearch()
-	}
+	// handle channels from web server
+	channelsWebServer()
 
 	if nonFlag || flagPlaylist {
-		logrus.Info("[  *  ] Searching for videos on playlist.list {upcoming videos} by ...")
 		startPlaylist()
 	}
 
 	// buscar videos list de upcomings
 	if nonFlag || flagSearcher {
-		logrus.Info("[  *  ] Searching for videos on search.list by upcoming videos ...")
-		startSearcher()
+		logrus.Info("[  *  ] Searching for videos on search.list by upcoming videos and channels ...")
+		channelsSearch()
 	}
 
 	// // trata videos recebidos
@@ -64,112 +58,55 @@ func main() {
 	}
 }
 
-func translate(text string) (string, string) {
-
-	info := whatlanggo.Detect("Live - Luan Estilizado, Vicente Nery, Edson Lima - À Vontade | #FiqueEmCasa e Cante #Comigo")
-	//fmt.Println("Language:", info.Lang.String(), " Script:", whatlanggo.Scripts[info.Script], " Confidence: ", info.Confidence)
-
-	c := fmt.Sprintf("%f", info.Confidence)
-
-	return info.Lang.String(), c
-
-}
-
-//var flagBlackList bool
-
 func initService() {
 
-	flag.BoolVar(&flagBlackList, "b", false, "run only the blacklist loading")
-	flag.BoolVar(&flagPlaylist, "p", false, "run only the playlist")
-	flag.BoolVar(&flagSearcher, "s", false, "run only the searcher")
-	flag.BoolVar(&flagVideo, "v", false, "run only the videos available in the consumer")
+	flag.BoolVar(&flagPlaylist, "p", false, "runs only the playlist")
+	flag.BoolVar(&flagSearcher, "s", false, "runs only the searcher")
+	flag.BoolVar(&flagVideo, "v", false, "runs only the videos available in the consumer")
 	flag.Parse()
 
 	// if there is no flag , consider as running all the robot
-	if !flagBlackList && !flagPlaylist && !flagSearcher && !flagVideo {
+	if !flagPlaylist && !flagSearcher && !flagVideo {
+		fmt.Println("--> no flag defined. Run full application")
 		nonFlag = true
 	}
 
 	fmt.Println("")
 	fmt.Println("=============================================")
-	fmt.Println("The service has been started ...")
+	fmt.Println("        The service has been started         ")
 	fmt.Println("=============================================")
 	fmt.Println("")
 
+	fmt.Println("loading rabbit settings...")
 	amqURL = entities.GetRabbitConnString()
+
+	fmt.Println("loading environment...")
 	environment = entities.GetEnv()
 
+	fmt.Println("loading web server settings...")
+	webserver = entities.GetWebServer().BaseURL
+	endpoints = entities.GetWebServerEndpoints()
+
+	fmt.Println("loading authoziation keys...")
+	authorization := dao.NewAuthorizationService()
+	tokens := authorization.Index()
+
+	for _, val := range tokens {
+		authKeys = append(authKeys, val.Token)
+	}
+
 }
 
-// BlacklistWEB struct for web blacklist
-type BlacklistWEB struct {
-	ID      string `json:"id"`
-	IDCanal string `json:"id_canal"`
+func channelsWebServer() {
+	logrus.Info("[  *  ] Searching for channels in the web server ...")
+	err := NewChannelWebListService().UpdateChannelsFromWebServer()
+	_errors.HandleError("Error to update channels from web server", err, false)
 }
 
-func startWebBlacklistSearch() {
-
-	response, err := http.Get(webserver + "/services/get-blacklist")
-
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"err":      err.Error(),
-			"endpoint": webserver + "/services/get-blacklist",
-		}).Error("Error to GET api data")
-
-		return
-	}
-
-	// close connection
-	defer response.Body.Close()
-
-	contents, err := ioutil.ReadAll(response.Body)
-
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"err":      err.Error(),
-			"endpoint": webserver + "/services/get-blacklist",
-		}).Error("Error to ready body from api data")
-
-		return
-	}
-
-	blacklistWeb := []BlacklistWEB{}
-
-	err = json.Unmarshal(contents, &blacklistWeb)
-
-	if err != nil {
-
-		logrus.WithFields(logrus.Fields{
-			"err":      err.Error(),
-			"endpoint": webserver + "/services/get-blacklist",
-		}).Error("Error to unmarshall body from api data")
-
-		return
-	}
-
-	// run all the data received and insert into the database
-	blackListService := dao.NewBlacklistService()
-
-	c := 0
-
-	for key := range blacklistWeb {
-
-		// search the channel id in the database
-		search := blackListService.Show(blacklistWeb[key].IDCanal)
-
-		// if do not found, then insert it
-		if len(search.ChannelID) <= 0 {
-			bl := dao.Blacklist{ChannelID: blacklistWeb[key].IDCanal}
-			blackListService.Insert(bl)
-
-			c++
-		}
-
-	}
-
-	logrus.Info(strconv.Itoa(c) + " new blacklist item(s) ...")
-
+func channelsSearch() {
+	logrus.Info("[  *  ] Searching videos from channel list")
+	err := NewChannelWebListService().SearchVideosByChannels()
+	_errors.HandleError("Error to retrieve channel videos from youtube", err, false)
 }
 
 func consumeVideo() {
@@ -231,9 +168,13 @@ func consumeVideo() {
 
 func receivedVideoData(d amqp.Delivery) error {
 
-	authKeys = entities.GetAuthKeys()
+	key, err, _ := dao.GetNewKey(authKeys, false)
 
-	logrus.Info("Video received from queue")
+	if err != nil {
+		return err
+	}
+
+	logrus.Info("---------------------------------> Video received from queue <---------------------------------")
 
 	message := ListOfIdsFromSearch{}
 
@@ -241,7 +182,7 @@ func receivedVideoData(d amqp.Delivery) error {
 		return errors.New("The string received is empty")
 	}
 
-	err := json.Unmarshal(d.Body, &message)
+	err = json.Unmarshal(d.Body, &message)
 
 	if err != nil {
 		return err
@@ -290,10 +231,10 @@ func receivedVideoData(d amqp.Delivery) error {
 	// ys := NewYotubeService(authKeys[0])
 	ys := NewYotubeService()
 
-	err = ys.SearchVideoByID(justString, authKeys[2])
+	err = ys.SearchVideoByID(message.Source, justString, key)
 
 	if err != nil {
-		t, err := verifyError403(err)
+		t, err := _errors.VerifyError403(err)
 
 		if t {
 			logrus.Panic("Error 403 - need to be threated")
@@ -317,13 +258,9 @@ func startSearcher() {
 		}).Error("There are no more auth keys available")
 	}
 
-	is403 := false
-
 	categoryList := entities.GetCategories()
 
-	stoppedKey := 0
-
-	for key, val := range categoryList {
+	for _, val := range categoryList {
 
 		ys := NewYotubeService()
 		err := ys.RunService(authKeys[0], val)
@@ -334,123 +271,19 @@ func startSearcher() {
 				continue
 			} else {
 				// check if the error is 403
-				t, _ := verifyError403(err)
+				t, _ := _errors.VerifyError403(err)
 				// define if is or not
-				is403 = t
-				// save exactly the key that got 403
-				stoppedKey = key
+				if t {
+					break
+				}
 			}
 		}
 	}
-
-	if is403 {
-		retryList(categoryList, stoppedKey)
-	}
-}
-
-func startPlaylist() {
-
-	authKeys = entities.GetAuthKeys()
-
-	if len(authKeys) <= 0 {
-		logrus.WithFields(logrus.Fields{
-			"autheKeysCount": "0",
-		}).Error("There are no more auth keys available")
-	}
-
-	p := entities.GetPlaylists()
-
-	for _, val := range p {
-
-		ys := NewYotubeService()
-		err := ys.RunByPlaylist(authKeys[1], val)
-
-		if err != nil {
-			logrus.Error(err)
-
-		}
-
-	}
-
-}
-
-func retryList(category []string, key int) error {
-
-	// validate amount of keys
-	if len(authKeys) <= 0 {
-		logrus.WithFields(logrus.Fields{
-			"autheKeysCount": "0",
-		}).Error("There are no more auth keys available")
-
-		return errors.New("There are no more auth keys available")
-	}
-
-	// retrieve the last published date
-	var s dao.SearchResultControl
-	s.Connect("mongodb://127.0.0.1:27017", "soliveboa")
-
-	_, err := s.GetNextPageToken()
-
-	if err != nil {
-
-		logrus.Error("No last published value found on DB")
-		return err
-	}
-
-	//remove key
-	authKeys = authKeys[:len(authKeys)-1]
-
-	ys := NewYotubeService()
-
-	is403 := false
-	stoppedKey := 0
-
-	for k, v := range category {
-
-		if k >= key {
-			err = ys.RunService(authKeys[0], v)
-
-			if err != nil {
-				t, _ := verifyError403(err)
-				is403 = t
-				stoppedKey = key
-
-				break
-			}
-		}
-	}
-
-	if is403 {
-		retryList(category, stoppedKey)
-	}
-
-	// call the method to list
-
-	return err
-
-}
-
-func verifyError403(err error) (bool, error) {
-
-	if err != nil && strings.Contains(err.Error(), "403") {
-
-		logrus.WithFields(logrus.Fields{
-			"error": err,
-		}).Warning("Error 403")
-
-		return true, err
-
-	}
-
-	logrus.WithFields(logrus.Fields{
-		"error": err,
-	}).Error("Error on youtube actions")
-
-	return false, err
-
 }
 
 func logInit() {
+
+	fmt.Println("setting log configuration for: " + environment + " environment")
 
 	if environment == "development" {
 
@@ -477,6 +310,13 @@ func logInit() {
 	}
 
 	logrus.SetLevel(logrus.DebugLevel)
+
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("")
+	fmt.Println("")
 
 	// ===================
 	// EXAMPLES

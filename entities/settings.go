@@ -10,13 +10,14 @@ import (
 
 // Settings strcut
 type Settings struct {
-	Env        string          `json:"env"`
-	List       ListParameters  `json:"list"`
-	Video      VideoParameters `json:"video"`
-	Auth       []string        `json:"auth"`
-	Categories []string        `json:"categories"`
-	Playlists  []string        `json:"playlists"`
-	Rabbit     RabbitSettings  `json:"rabbit"`
+	Env        string            `json:"env"`
+	List       ListParameters    `json:"list"`
+	Video      VideoParameters   `json:"video"`
+	Auth       []string          `json:"auth"`
+	Categories []string          `json:"categories"`
+	Playlists  []string          `json:"playlists"`
+	Rabbit     RabbitSettings    `json:"rabbit"`
+	WebServer  WebServerSettings `json:"webServer`
 }
 
 // ListParameters - Define the parameters to return the list
@@ -46,6 +47,15 @@ type RabbitSettings struct {
 	Port     string `json:"port"`
 	User     string `json:"user"`
 	Pass     string `json:"pass"`
+}
+
+type WebServerSettings struct {
+	BaseURL   string             `json:"baseUrl"`
+	Endpoints WebServerEndpoints `json:"endpoints"`
+}
+
+type WebServerEndpoints struct {
+	Channels string `json:"channels"`
 }
 
 var dataSettings Settings
@@ -137,7 +147,17 @@ func GetRabbitSettings() RabbitSettings {
 func GetRabbitConnString() string {
 
 	rabbit := GetRabbitSettings()
-
 	return "amqp://" + rabbit.User + ":" + rabbit.Pass + "@" + rabbit.Hostname + ":" + rabbit.Port
+}
 
+// GetGetWebServer method
+func GetWebServer() WebServerSettings {
+
+	loadData()
+	return dataSettings.WebServer
+}
+
+// GetGetWebServerEndpoints method
+func GetWebServerEndpoints() WebServerEndpoints {
+	return GetWebServer().Endpoints
 }

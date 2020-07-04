@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"soliveboa/youtuber/v2/dao"
 	"soliveboa/youtuber/v2/entities"
+	_errors "soliveboa/youtuber/v2/errors"
 	"soliveboa/youtuber/v2/rabbit"
 	"time"
 
@@ -20,8 +21,8 @@ var apiKey string
 
 // MessageResponseVideo from youtuber
 type MessageResponseVideo struct {
-	LocationName string                    `json:"location"`
-	Videos       youtube.VideoListResponse `json:"videos"`
+	Source string                    `json:"source"`
+	Videos youtube.VideoListResponse `json:"videos"`
 }
 
 // Youtube structu for the service
@@ -30,7 +31,8 @@ type Youtube struct {
 
 // ListOfIdsFromSearch struct
 type ListOfIdsFromSearch struct {
-	IDs []string `json:"ids"`
+	Source string   `json:"source"`
+	IDs    []string `json:"ids"`
 }
 
 // NewYotubeService - creates a new instance
@@ -60,7 +62,10 @@ func (y Youtube) RunByPlaylist(k string, playlistID string) error {
 	call := youtubeService.PlaylistItems.List("snippet")
 	call.PlaylistId(playlistID)
 	call.MaxResults(50)
+
 	err = call.Pages(ctx, addPlaylistPaginedResults)
+
+	_errors.HandleError("Error call.Pages() playlist", err, false)
 
 	return err
 
@@ -76,36 +81,26 @@ func addPlaylistPaginedResults(values *youtube.PlaylistItemListResponse) error {
 	}
 
 	//define tokens
-	var nextToken = values.NextPageToken
+	// var nextToken = values.NextPageToken
 	//var prev = values.PrevPageToken
 
 	// define id array
 	var id []string
 
-	// define db connection
-	bckService := dao.NewBlacklistService()
-
 	// looping through the items
 	for key := range values.Items {
 
 		vid := values.Items[key].Snippet.ResourceId.VideoId
-		channel := values.Items[key].Snippet.ChannelId
 
 		if vid == "" {
 			logrus.Warning("ATTENTION: the video ID is null")
 		}
 
-		bck := bckService.Show(channel)
-
-		// se não estiver na black list, então carrego
-		if bck.ID <= 0 {
-			id = append(id, vid)
-		}
-
+		id = append(id, vid)
 	}
 
 	// define the list
-	listID := &ListOfIdsFromSearch{IDs: id}
+	listID := &ListOfIdsFromSearch{Source: "playlist", IDs: id}
 
 	// check if the return is null
 	if len(listID.IDs) <= 0 {
@@ -114,9 +109,9 @@ func addPlaylistPaginedResults(values *youtube.PlaylistItemListResponse) error {
 		totalNull++
 		fmt.Printf("null count: %v\n", totalNull)
 
-		tokenRec := dao.NewTokenRecoveryService()
-		b := dao.TokenRecovery{NextToken: nextToken}
-		tokenRec.Insert(b)
+		// tokenRec := dao.NewTokenRecoveryService()
+		// b := dao.TokenRecovery{NextToken: nextToken}
+		// tokenRec.Insert(b)
 
 		// is more than 5
 		if totalNull >= 5 {
@@ -217,41 +212,19 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 		return nil
 	}
 
-	//define tokens
-	var nextToken = values.NextPageToken
-	//var prev = values.PrevPageToken
-
 	// define id array
 	var id []string
-
-	// Define dao services
-	bckService := dao.NewBlacklistService()
 
 	// looping through the items
 	for key := range values.Items {
 
 		vid := values.Items[key].Id.VideoId
-		channel := values.Items[key].Snippet.ChannelId
 
 		if vid == "" {
 			logrus.Warning("ATTENTION: the video ID is null")
 		}
 
-		bck := bckService.Show(channel)
-
-		// se não estiver na black list, então carrego
-		if bck.ID > 0 {
-
-			logrus.WithFields(logrus.Fields{
-				"channel_id": channel,
-				"video_id":   vid,
-			}).Info("Video refused because his channel is included into the blacklist")
-
-			continue
-		} else {
-			// add to the list of videos
-			id = append(id, vid)
-		}
+		id = append(id, vid)
 	}
 
 	// define the list
@@ -263,10 +236,6 @@ func addPaginedResults(values *youtube.SearchListResponse) error {
 		// increment
 		totalNull++
 		fmt.Printf("null count: %v\n", totalNull)
-
-		tokenRec := dao.NewTokenRecoveryService()
-		b := dao.TokenRecovery{NextToken: nextToken}
-		tokenRec.Insert(b)
 
 		// is more than 5
 		if totalNull >= 5 {
@@ -348,7 +317,7 @@ func sendResponse(a *ListOfIdsFromSearch) error {
 }
 
 // SearchVideoByID - list video details by ID
-func (y Youtube) SearchVideoByID(videoID string, k string) error {
+func (y Youtube) SearchVideoByID(source string, videoID string, k string) error {
 
 	apiKey = k
 
@@ -391,8 +360,8 @@ func (y Youtube) SearchVideoByID(videoID string, k string) error {
 
 			// send the message
 			message := &MessageResponseVideo{
-				LocationName: "undefined",
-				Videos:       v,
+				Source: source,
+				Videos: v,
 			}
 
 			_ = y.ProcessVideo(message)
